@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Chat App</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="login-container" class="container">
+        <div class="login-box">
+            <h2>Welcome to Chat</h2>
+            <input type="text" id="username-input" placeholder="Enter username" autocomplete="off">
+            <button id="login-btn">Join Chat</button>
+        </div>
+    </div>
+
+    <div id="chat-container" class="container hidden">
+        <button id="logout-btn" class="logout-btn">Logout</button>
+        <div class="sidebar">
+            <div class="user-info">
+                <span id="current-user"></span>
+                <div class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span id="user-status">Online</span>
+                </div>
+            </div>
+            <div class="online-users">
+                <h3>Online Users</h3>
+                <ul id="users-list"></ul>
+            </div>
+            <div id="admin-panel" class="hidden">
+                <h3>Admin Controls</h3>
+                <button id="clear-chat" class="admin-btn">
+                    <i class="fas fa-broom"></i> Clear Chat
+                </button>
+                <button id="ban-user" class="admin-btn">
+                    <i class="fas fa-ban"></i> Ban User
+                </button>
+            </div>
+        </div>
+
+        <div class="chat-main">
+            <div class="chat-messages" id="chat-messages"></div>
+            
+            <div class="message-input-container">
+                <div id="replying-to" class="replying-to hidden">
+                    <span class="reply-icon">↩️</span>
+                    <span class="reply-text"></span>
+                    <button class="cancel-reply">✕</button>
+                </div>
+                <div class="message-input-wrapper">
+                    <input type="text" id="message-input" placeholder="Type your message..." autocomplete="off">
+                    <div class="input-actions">
+                        <div class="upload-btn">
+                            <input type="file" id="file-input" accept="image/*,.pdf,.doc,.docx" multiple>
+                            <label for="file-input">
+                                <i class="fas fa-paperclip"></i>
+                            </label>
+                        </div>
+                        <button id="send-btn">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="typing-indicator hidden">
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="notifications" class="notifications"></div>
+
+    <template id="message-template">
+        <div class="message">
+            <div class="message-header">
+                <span class="username"></span>
+                <span class="timestamp"></span>
+            </div>
+            <div class="message-content"></div>
+            <button class="reply-btn">
+                <i class="fas fa-reply"></i>
+            </button>
+        </div>
+    </template>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
