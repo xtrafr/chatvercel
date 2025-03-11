@@ -164,7 +164,13 @@ class ChatApp {
                 this.chatContainer.classList.remove('hidden');
                 
                 // Setup socket connection
-                this.socket = io();
+                this.socket = io({
+                    path: '/socket.io/',
+                    transports: ['websocket'],
+                    reconnection: true,
+                    reconnectionAttempts: 5,
+                    reconnectionDelay: 1000
+                });
                 this.setupSocketListeners();
                 this.socket.emit('login', { username });
 
