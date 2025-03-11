@@ -165,11 +165,12 @@ class ChatApp {
                 
                 // Setup socket connection
                 this.socket = io({
-                    path: '/socket.io/',
-                    transports: ['websocket'],
+                    transports: ['websocket', 'polling'],
+                    upgrade: true,
                     reconnection: true,
                     reconnectionAttempts: 5,
-                    reconnectionDelay: 1000
+                    reconnectionDelay: 1000,
+                    timeout: 20000
                 });
                 this.setupSocketListeners();
                 this.socket.emit('login', { username });
