@@ -69,6 +69,20 @@ app.post('/api/login', (req, res) => {
     });
 });
 
+app.post('/api/logout', (req, res) => {
+    const { userId } = req.body;
+    
+    // Find and remove user
+    for (const [username, user] of users.entries()) {
+        if (user.id === userId) {
+            users.delete(username);
+            break;
+        }
+    }
+    
+    res.json({ success: true });
+});
+
 app.post('/api/upload', upload.array('files', 5), (req, res) => {
     try {
         const urls = req.files.map(file => `/uploads/${file.filename}`);

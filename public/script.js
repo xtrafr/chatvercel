@@ -117,7 +117,9 @@ class ChatApp {
         });
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
         this.cancelReplyBtn.addEventListener('click', () => this.cancelReply());
-        this.logoutBtn.addEventListener('click', () => this.logout());
+        this.logoutBtn.addEventListener('click', async () => {
+            await this.handleLogout();
+        });
 
         // Admin events
         document.getElementById('clear-chat')?.addEventListener('click', () => this.clearChat());
@@ -197,22 +199,52 @@ class ChatApp {
         }
     }
 
-    logout() {
-        if (this.socket) {
-            this.socket.disconnect();
-        }
-        this.clearSession();
-        this.currentUser = null;
-        this.isAdmin = false;
-        this.chatContainer.classList.add('hidden');
-        this.loginContainer.classList.remove('hidden');
-        this.chatMessages.innerHTML = '';
-        this.usersList.innerHTML = '';
-        this.usernameInput.value = '';
-        this.replyingTo = null;
-        this.replyingToDiv.classList.add('hidden');
-        if (this.adminPanel) {
-            this.adminPanel.classList.add('hidden');
+    async handleLogout() {
+        try {
+            if (this.currentUser) {
+                const response = await fetch('/api/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: this.currentUser })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to logout');
+                }
+            }
+        } catch (error) {
+            console.error('Logout error:', error);
+        } finally {
+            // Always reset client state, even if server request fails
+            this.currentUser = null;
+            this.isAdmin = false;
+
+            // Clear messages and user list
+            this.chatMessages.innerHTML = '';
+            this.usersList.innerHTML = '';
+
+            // Reset inputs
+            this.messageInput.value = '';
+            this.usernameInput.value = '';
+
+            // Hide chat container and show login form
+            this.chatContainer.classList.add('hidden');
+            this.loginContainer.classList.remove('hidden');
+
+            // Hide admin panel if visible
+            if (this.adminPanel) {
+                this.adminPanel.classList.add('hidden');
+            }
+
+            // Disconnect from socket
+            if (this.socket) {
+                this.socket.disconnect();
+            }
+
+            // Clear session
+            this.clearSession();
         }
     }
 
