@@ -59,6 +59,10 @@ class ChatApp {
 
         this.socket.on('connect', () => {
             console.log('Connected to server');
+            // If we were previously connected and had a username, re-login
+            if (this.currentUser) {
+                this.socket.emit('login', { username: this.currentUser });
+            }
         });
 
         this.socket.on('userJoined', (data) => {
@@ -87,17 +91,45 @@ class ChatApp {
         });
 
         this.socket.on('error', (error) => {
-            this.showError(error);
+            console.error('Socket error:', error);
             if (error.includes('banned')) {
-                this.logout();
+                this.handleLogout();
+            } else {
+                this.addSystemMessage(`Error: ${error}`);
             }
         });
 
-        this.socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-            if (this.currentUser) {
-                this.showError('Lost connection to server. Please refresh the page.');
+        this.socket.on('connect_error', (error) => {
+            console.error('Connection error:', error);
+            this.addSystemMessage('Connection error. Trying to reconnect...');
+        });
+
+        this.socket.on('disconnect', (reason) => {
+            console.log('Disconnected from server. Reason:', reason);
+            
+            // Only show error if it's not an intentional disconnect
+            if (reason !== 'io client disconnect' && this.currentUser) {
+                this.addSystemMessage('Disconnected from server. Attempting to reconnect...');
             }
+        });
+
+        this.socket.on('reconnect', (attemptNumber) => {
+            console.log('Reconnected to server after', attemptNumber, 'attempts');
+            this.addSystemMessage('Reconnected to server successfully!');
+            
+            // Re-login after reconnection
+            if (this.currentUser) {
+                this.socket.emit('login', { username: this.currentUser });
+            }
+        });
+
+        this.socket.on('reconnect_error', (error) => {
+            console.error('Reconnection error:', error);
+        });
+
+        this.socket.on('reconnect_failed', () => {
+            console.error('Failed to reconnect to server');
+            this.addSystemMessage('Failed to reconnect to server. Please refresh the page.');
         });
     }
 
@@ -173,8 +205,15 @@ class ChatApp {
                 this.loginContainer.classList.add('hidden');
                 this.chatContainer.classList.remove('hidden');
                 
-                // Setup socket connection after successful login
-                this.socket = io();
+                // Setup socket connection after successful login with reconnection options
+                this.socket = io({
+                    reconnection: true,
+                    reconnectionAttempts: 10,
+                    reconnectionDelay: 1000,
+                    reconnectionDelayMax: 5000,
+                    timeout: 20000
+                });
+                
                 this.setupSocketListeners();
                 this.socket.emit('login', { username });
 
@@ -374,7 +413,11 @@ class ChatApp {
                         timestamp: new Date().toISOString()
                     };
                     
-                    this.socket.emit('chatMessage', message);
+                    if (this.socket && this.socket.connected) {
+                        this.socket.emit('chatMessage', message);
+                    } else {
+                        this.addSystemMessage('Cannot send file: disconnected from server');
+                    }
                 });
             } else {
                 throw new Error(data.error || 'Failed to upload file');
@@ -391,6 +434,11 @@ class ChatApp {
     sendMessage() {
         const content = this.messageInput.value.trim();
         if (!content) return;
+
+        if (!this.socket || !this.socket.connected) {
+            this.addSystemMessage('Cannot send message: disconnected from server');
+            return;
+        }
 
         const message = {
             content,
@@ -410,13 +458,13 @@ class ChatApp {
     }
 
     handleTyping() {
-        if (!this.socket) return;
+        if (!this.socket || !this.socket.connected) return;
         
         clearTimeout(this.typingTimeout);
         this.socket.emit('typing', this.currentUser);
 
         this.typingTimeout = setTimeout(() => {
-            if (this.socket) {
+            if (this.socket && this.socket.connected) {
                 this.socket.emit('stopTyping', this.currentUser);
             }
         }, 1000);
@@ -454,17 +502,24 @@ class ChatApp {
     }
 
     showError(message) {
-        alert(message);
+        // Only show alert for important errors
+        if (message.includes('banned') || message.includes('Username already taken')) {
+            alert(message);
+        } else {
+            // For connection issues, show a less intrusive notification
+            this.addSystemMessage(`Error: ${message}`);
+            console.error('Error:', message);
+        }
     }
 
     // Admin functions
     clearChat() {
-        if (!this.isAdmin || !this.socket) return;
+        if (!this.isAdmin || !this.socket || !this.socket.connected) return;
         this.socket.emit('clearChat');
     }
 
     showBanUserDialog() {
-        if (!this.isAdmin || !this.socket) return;
+        if (!this.isAdmin || !this.socket || !this.socket.connected) return;
         const username = prompt('Enter username to ban:');
         if (username) {
             this.socket.emit('banUser', username);
