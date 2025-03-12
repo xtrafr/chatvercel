@@ -7,6 +7,8 @@ class ChatApp {
         this.typingTimeout = null;
         this.typingIndicatorTimeout = null;
         this.replyingTo = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
         this.setupDOMElements();
         this.initializeEventListeners();
         this.checkSession();
@@ -59,6 +61,9 @@ class ChatApp {
 
         this.socket.on('connect', () => {
             console.log('Connected to server');
+            this.addSystemMessage('Connected to server');
+            this.reconnectAttempts = 0;
+            
             // If we were previously connected and had a username, re-login
             if (this.currentUser) {
                 this.socket.emit('login', { username: this.currentUser });
@@ -102,6 +107,7 @@ class ChatApp {
         this.socket.on('connect_error', (error) => {
             console.error('Connection error:', error);
             this.addSystemMessage('Connection error. Trying to reconnect...');
+            this.attemptReconnect();
         });
 
         this.socket.on('disconnect', (reason) => {
@@ -110,12 +116,14 @@ class ChatApp {
             // Only show error if it's not an intentional disconnect
             if (reason !== 'io client disconnect' && this.currentUser) {
                 this.addSystemMessage('Disconnected from server. Attempting to reconnect...');
+                this.attemptReconnect();
             }
         });
 
         this.socket.on('reconnect', (attemptNumber) => {
             console.log('Reconnected to server after', attemptNumber, 'attempts');
             this.addSystemMessage('Reconnected to server successfully!');
+            this.reconnectAttempts = 0;
             
             // Re-login after reconnection
             if (this.currentUser) {
@@ -125,12 +133,33 @@ class ChatApp {
 
         this.socket.on('reconnect_error', (error) => {
             console.error('Reconnection error:', error);
+            this.reconnectAttempts++;
+            if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                this.addSystemMessage('Failed to reconnect after multiple attempts. Please refresh the page.');
+            }
         });
 
         this.socket.on('reconnect_failed', () => {
             console.error('Failed to reconnect to server');
             this.addSystemMessage('Failed to reconnect to server. Please refresh the page.');
         });
+    }
+
+    attemptReconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+            this.addSystemMessage('Maximum reconnection attempts reached. Please refresh the page.');
+            return;
+        }
+
+        this.reconnectAttempts++;
+        
+        // Try to reconnect manually if socket.io's reconnect doesn't work
+        setTimeout(() => {
+            if (this.socket && !this.socket.connected) {
+                this.addSystemMessage(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}...`);
+                this.socket.connect();
+            }
+        }, 2000 * this.reconnectAttempts); // Increasing backoff
     }
 
     initializeEventListeners() {
@@ -206,12 +235,19 @@ class ChatApp {
                 this.chatContainer.classList.remove('hidden');
                 
                 // Setup socket connection after successful login with reconnection options
-                this.socket = io({
+                // Configure for Vercel environment
+                const socketUrl = window.location.hostname === 'localhost' ? 
+                    undefined : // Use default for localhost
+                    window.location.origin; // Use origin for production
+                
+                this.socket = io(socketUrl, {
+                    path: '/socket.io/',
                     reconnection: true,
                     reconnectionAttempts: 10,
                     reconnectionDelay: 1000,
                     reconnectionDelayMax: 5000,
-                    timeout: 20000
+                    timeout: 10000,
+                    transports: ['websocket', 'polling']
                 });
                 
                 this.setupSocketListeners();
@@ -417,6 +453,7 @@ class ChatApp {
                         this.socket.emit('chatMessage', message);
                     } else {
                         this.addSystemMessage('Cannot send file: disconnected from server');
+                        this.attemptReconnect();
                     }
                 });
             } else {
@@ -437,6 +474,7 @@ class ChatApp {
 
         if (!this.socket || !this.socket.connected) {
             this.addSystemMessage('Cannot send message: disconnected from server');
+            this.attemptReconnect();
             return;
         }
 
@@ -453,21 +491,32 @@ class ChatApp {
             this.cancelReply();
         }
 
-        this.socket.emit('chatMessage', message);
-        this.messageInput.value = '';
+        try {
+            this.socket.emit('chatMessage', message);
+            this.messageInput.value = '';
+        } catch (error) {
+            console.error('Error sending message:', error);
+            this.addSystemMessage('Error sending message. Attempting to reconnect...');
+            this.attemptReconnect();
+        }
     }
 
     handleTyping() {
         if (!this.socket || !this.socket.connected) return;
         
         clearTimeout(this.typingTimeout);
-        this.socket.emit('typing', this.currentUser);
+        
+        try {
+            this.socket.emit('typing', this.currentUser);
 
-        this.typingTimeout = setTimeout(() => {
-            if (this.socket && this.socket.connected) {
-                this.socket.emit('stopTyping', this.currentUser);
-            }
-        }, 1000);
+            this.typingTimeout = setTimeout(() => {
+                if (this.socket && this.socket.connected) {
+                    this.socket.emit('stopTyping', this.currentUser);
+                }
+            }, 1000);
+        } catch (error) {
+            console.error('Error sending typing notification:', error);
+        }
     }
 
     showTypingIndicator(username) {

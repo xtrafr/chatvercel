@@ -4,16 +4,12 @@
     {
       "src": "server.js",
       "use": "@vercel/node"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/socket.io/(.*)",
-      "dest": "server.js",
+      "dest": "/server.js",
       "headers": {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -21,12 +17,8 @@
       }
     },
     {
-      "src": "/api/(.*)",
-      "dest": "server.js"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/public/$1"
+      "dest": "/server.js"
     }
   ]
 }

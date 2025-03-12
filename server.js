@@ -9,13 +9,20 @@ const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
+
+// Configure Socket.io for Vercel environment
 const io = socketIo(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
     },
-    pingTimeout: 60000, // 60 seconds
-    pingInterval: 25000  // 25 seconds
+    pingTimeout: 10000,
+    pingInterval: 2500,
+    transports: ['websocket', 'polling'],
+    path: '/socket.io/',
+    // These settings help with Vercel's serverless functions
+    allowEIO3: true,
+    cookie: false
 });
 
 const port = process.env.PORT || 3000;
@@ -348,7 +355,13 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Start server
-server.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-});
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+    server.listen(port, () => {
+        console.log(`Server running on port ${port}`);
+    });
+} else {
+    // For Vercel production
+    // Export the Express API
+    module.exports = app;
+}
