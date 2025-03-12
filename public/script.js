@@ -2,8 +2,10 @@ class ChatApp {
     constructor() {
         this.socket = null;
         this.currentUser = null;
+        this.userId = null;
         this.isAdmin = false;
         this.typingTimeout = null;
+        this.typingIndicatorTimeout = null;
         this.replyingTo = null;
         this.setupDOMElements();
         this.initializeEventListeners();
@@ -117,9 +119,7 @@ class ChatApp {
         });
         this.fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
         this.cancelReplyBtn.addEventListener('click', () => this.cancelReply());
-        this.logoutBtn.addEventListener('click', async () => {
-            await this.handleLogout();
-        });
+        this.logoutBtn.addEventListener('click', () => this.handleLogout());
 
         // Admin events
         document.getElementById('clear-chat')?.addEventListener('click', () => this.clearChat());
@@ -129,15 +129,22 @@ class ChatApp {
     checkSession() {
         const session = localStorage.getItem('chatSession');
         if (session) {
-            const { username, isAdmin } = JSON.parse(session);
-            this.usernameInput.value = username;
-            this.handleLogin(true);
+            try {
+                const { username, userId, isAdmin } = JSON.parse(session);
+                this.usernameInput.value = username;
+                this.userId = userId;
+                this.handleLogin(true);
+            } catch (error) {
+                console.error('Error parsing session:', error);
+                this.clearSession();
+            }
         }
     }
 
     saveSession() {
         localStorage.setItem('chatSession', JSON.stringify({
             username: this.currentUser,
+            userId: this.userId,
             isAdmin: this.isAdmin
         }));
     }
@@ -161,19 +168,13 @@ class ChatApp {
 
             if (data.success) {
                 this.currentUser = username;
+                this.userId = data.userId;
                 this.isAdmin = data.isAdmin;
                 this.loginContainer.classList.add('hidden');
                 this.chatContainer.classList.remove('hidden');
                 
-                // Setup socket connection
-                this.socket = io({
-                    transports: ['websocket', 'polling'],
-                    upgrade: true,
-                    reconnection: true,
-                    reconnectionAttempts: 5,
-                    reconnectionDelay: 1000,
-                    timeout: 20000
-                });
+                // Setup socket connection after successful login
+                this.socket = io();
                 this.setupSocketListeners();
                 this.socket.emit('login', { username });
 
@@ -186,28 +187,34 @@ class ChatApp {
                 this.saveSession();
 
                 // Display previous messages
-                if (data.messages) {
+                if (data.messages && Array.isArray(data.messages)) {
                     data.messages.forEach(msg => this.displayMessage(msg));
+                }
+
+                // Update user list
+                if (data.onlineUsers && Array.isArray(data.onlineUsers)) {
+                    this.updateUsersList(data.onlineUsers);
                 }
 
                 document.getElementById('current-user').textContent = username;
             } else {
-                this.showError(data.error);
+                this.showError(data.error || 'Login failed');
             }
         } catch (error) {
+            console.error('Login error:', error);
             this.showError('Failed to login. Please try again.');
         }
     }
 
     async handleLogout() {
         try {
-            if (this.currentUser) {
+            if (this.userId) {
                 const response = await fetch('/api/logout', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ username: this.currentUser })
+                    body: JSON.stringify({ userId: this.userId })
                 });
 
                 if (!response.ok) {
@@ -219,6 +226,7 @@ class ChatApp {
         } finally {
             // Always reset client state, even if server request fails
             this.currentUser = null;
+            this.userId = null;
             this.isAdmin = false;
 
             // Clear messages and user list
@@ -241,6 +249,7 @@ class ChatApp {
             // Disconnect from socket
             if (this.socket) {
                 this.socket.disconnect();
+                this.socket = null;
             }
 
             // Clear session
@@ -263,6 +272,8 @@ class ChatApp {
     }
 
     displayMessage(message) {
+        if (!message || !message.content) return;
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${message.username === this.currentUser ? 'own-message' : ''}`;
         messageDiv.dataset.messageId = message.id;
@@ -351,20 +362,25 @@ class ChatApp {
             });
 
             const data = await response.json();
-            if (data.success) {
+            if (data.success && data.urls) {
                 data.urls.forEach(url => {
                     const fileExt = url.split('.').pop().toLowerCase();
                     const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt);
                     
-                    this.socket.emit('chatMessage', {
+                    const message = {
                         content: url,
                         type: isImage ? 'image' : 'file',
                         username: this.currentUser,
                         timestamp: new Date().toISOString()
-                    });
+                    };
+                    
+                    this.socket.emit('chatMessage', message);
                 });
+            } else {
+                throw new Error(data.error || 'Failed to upload file');
             }
         } catch (error) {
+            console.error('File upload error:', error);
             this.showError('Failed to upload file');
         }
 
@@ -374,7 +390,7 @@ class ChatApp {
 
     sendMessage() {
         const content = this.messageInput.value.trim();
-        if (!content && !this.fileInput.files.length) return;
+        if (!content) return;
 
         const message = {
             content,
@@ -394,17 +410,21 @@ class ChatApp {
     }
 
     handleTyping() {
+        if (!this.socket) return;
+        
         clearTimeout(this.typingTimeout);
         this.socket.emit('typing', this.currentUser);
 
         this.typingTimeout = setTimeout(() => {
-            this.socket.emit('stopTyping', this.currentUser);
+            if (this.socket) {
+                this.socket.emit('stopTyping', this.currentUser);
+            }
         }, 1000);
     }
 
     showTypingIndicator(username) {
         this.typingIndicator.classList.remove('hidden');
-        this.typingIndicator.textContent = `${username} is typing...`;
+        this.typingIndicator.querySelector('span').textContent = `${username} is typing...`;
 
         clearTimeout(this.typingIndicatorTimeout);
         this.typingIndicatorTimeout = setTimeout(() => {
@@ -413,6 +433,8 @@ class ChatApp {
     }
 
     updateUsersList(users) {
+        if (!Array.isArray(users)) return;
+        
         this.usersList.innerHTML = '';
         users.forEach(user => {
             const li = document.createElement('li');
@@ -437,12 +459,12 @@ class ChatApp {
 
     // Admin functions
     clearChat() {
-        if (!this.isAdmin) return;
+        if (!this.isAdmin || !this.socket) return;
         this.socket.emit('clearChat');
     }
 
     showBanUserDialog() {
-        if (!this.isAdmin) return;
+        if (!this.isAdmin || !this.socket) return;
         const username = prompt('Enter username to ban:');
         if (username) {
             this.socket.emit('banUser', username);
